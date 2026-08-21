@@ -45,11 +45,15 @@ Console.CancelKeyPress += (_, e) =>
 };
 
 var service = new EngineService();
-var control = ControlPlane.RunAsync(service, pipeName, shutdown.Token);
+// O probe é criado ANTES dos dois laços porque é o que os liga: o desenho
+// escreve nele, o plano de controle o esvazia e envia. Nenhum dos dois conhece
+// o outro.
+var telemetry = new FrameTelemetryProbe();
+var control = ControlPlane.RunAsync(service, telemetry, pipeName, shutdown.Token);
 
 try
 {
-    using var game = new GridsmithGame(service, contentRoot);
+    using var game = new GridsmithGame(service, contentRoot, telemetry);
     game.Run();
 }
 finally
@@ -75,8 +79,17 @@ internal static class ControlPlane
     /// Mesmo laço de serviço do Runtime: conecta, faz handshake e mantém
     /// heartbeat, reconectando com backoff. Uma queda do middleware não fecha
     /// a janela — o usuário continua vendo o último estado desenhado.
+    ///
+    /// <para>É também o dono da cadência da telemetria: o Draw só acumula, e
+    /// quem transforma acúmulo em mensagem é este laço. Enquanto não há
+    /// conexão, a telemetria simplesmente não sai — a janela do host continua
+    /// desenhando, e o que se perde é observação, não imagem.</para>
     /// </summary>
-    public static async Task RunAsync(EngineService service, string pipeName, CancellationToken ct)
+    public static async Task RunAsync(
+        EngineService service,
+        FrameTelemetryProbe telemetry,
+        string pipeName,
+        CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
@@ -91,10 +104,22 @@ internal static class ControlPlane
                     $"(protocol {session.ProtocolVersion})");
                 await channel.LogAsync("info", "graphics host online", "host", ct);
 
+                // O tique é o da telemetria (o mais curto); o heartbeat é um
+                // múltiplo dele. Dois laços independentes custariam uma
+                // segunda task para publicar um número por segundo.
+                const int heartbeatEveryTicks = 15;
+                var tick = 0;
                 while (!ct.IsCancellationRequested)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(15), ct);
-                    await channel.PingAsync("heartbeat", ct);
+                    await Task.Delay(FrameTelemetryPublisher.Interval, ct);
+                    await FrameTelemetryPublisher.PublishAsync(
+                        channel.Connection, telemetry, service, ct);
+                    if (++tick % heartbeatEveryTicks == 0)
+                    {
+                        // O ping continua: é round-trip, e só ele prova que o
+                        // middleware AINDA responde. Notificação não prova.
+                        await channel.PingAsync("heartbeat", ct);
+                    }
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

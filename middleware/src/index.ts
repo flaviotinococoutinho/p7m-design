@@ -37,6 +37,7 @@ import { startMcpStdio } from "./mcp/McpFacade.js";
 import { ExperienceGovernor } from "./runtime/ExperienceGovernor.js";
 import type { ProjectionResult } from "./runtime/RuntimeAdapter.js";
 import { bindEngineProjectSessionLifecycle } from "./runtime/EngineProjectSessionLifecycle.js";
+import { bindFrameTelemetryJournal } from "./runtime/FrameTelemetryJournal.js";
 import { MonoGameAdapter } from "./runtime/MonoGameAdapter.js";
 import { RuntimeProfileRegistry } from "./runtime/RuntimeProfile.js";
 import { MONOGAME_PROFILES } from "./runtime/profiles/monogame.js";
@@ -215,6 +216,17 @@ async function main(): Promise<void> {
   pipeServer.on("engineLog", (_session: EngineSession, entry: EngineLogEntry) => {
     console.error(`[engine:${entry.level}]${entry.category ? ` (${entry.category})` : ""} ${entry.message}`);
   });
+  // Fio de volta do host gráfico: as janelas de desenho viram eventos do
+  // diário — observáveis pelos dois transports — sem gastar o anel, porque a
+  // política coalesce o sinal contínuo (ADR-023).
+  const unbindFrameTelemetryJournal = bindFrameTelemetryJournal(pipeServer, journal, {
+    onJournaled: (_envelope, payload) => {
+      log.debug(
+        `frame telemetry (${payload.reason}): ${payload.frames} frames, ` +
+          `${payload.frame.quads} quads, camera (${payload.camera.x}, ${payload.camera.y})`,
+      );
+    },
+  });
   // Somente a troca da engine efetivamente corrente dispara reset/reidratação.
   // Fechar A depois que B a supersedeu não produz um segundo ciclo nem pode
   // fazer o runtime voltar para A. O manager lê apenas sua sessão de projeto
@@ -283,6 +295,7 @@ async function main(): Promise<void> {
   const shutdown = async (): Promise<void> => {
     console.error("[gridsmith] shutting down");
     unbindEngineProjectSessionLifecycle();
+    unbindFrameTelemetryJournal();
     assetService?.close();
     await grpcGateway?.close();
     await graphqlGateway?.close();

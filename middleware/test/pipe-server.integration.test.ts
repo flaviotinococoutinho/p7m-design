@@ -15,6 +15,7 @@ import { ProjectSessionManager } from "../src/canonical/ProjectSessionManager.js
 import { CapabilityRegistry } from "../src/domain/CapabilityRegistry.js";
 import { MonoGameAdapter } from "../src/runtime/MonoGameAdapter.js";
 import { bindEngineProjectSessionLifecycle } from "../src/runtime/EngineProjectSessionLifecycle.js";
+import type { FrameTelemetrySample } from "../src/runtime/FrameTelemetry.js";
 import type {
   ProjectionResult,
   RuntimeAdapter,
@@ -326,6 +327,48 @@ test("fluxo bidirecional: middleware pinga a engine e recebe logs dela", async (
     engine.notify("engine/log", { level: "info", message: "frame pacing ok", category: "runtime" });
     const entry = await logReceived;
     assert.equal(entry.message, "frame pacing ok");
+    engine.close();
+  });
+});
+
+test("o host gráfico notifica telemetria de frame pelo mesmo fio de volta", async () => {
+  await withServer(async ({ server }) => {
+    const telemetryReceived = new Promise<FrameTelemetrySample>((resolve) => {
+      server.once("frameTelemetry", (_s: EngineSession, sample: FrameTelemetrySample) =>
+        resolve(sample),
+      );
+    });
+    const engine = await connectFakeEngine(server);
+    await engine.request("engine/handshake", {
+      clientName: "Gridsmith.Engine.Host",
+      clientVersion: "0.1.0",
+      protocolVersion: PROTOCOL_VERSION,
+    });
+
+    // Malformada primeiro: tem de ser DESCARTADA sem derrubar a conexão — é
+    // notificação, não há a quem devolver erro, e fechar o plano de controle
+    // por causa do acessório seria trocar o barato pelo caro.
+    engine.notify("frame/telemetry", { frames: "muitos" });
+
+    engine.notify("frame/telemetry", {
+      frames: 60,
+      windowMs: 1000,
+      drawMsAvg: 1.5,
+      drawMsMax: 4,
+      camera: { x: 64, y: 32, zoom: 1 },
+      frame: { quads: 96, quadsRequired: 96, truncated: false },
+      scene: { actors: 2, lights: 1, tilemaps: 1 },
+    });
+
+    const sample = await telemetryReceived;
+    assert.equal(sample.frames, 60);
+    assert.equal(sample.camera.x, 64);
+    assert.equal(sample.frame.quads, 96);
+    assert.equal(sample.scene.lights, 1);
+
+    // a conexão sobreviveu à amostra inválida
+    const pong = await engine.request("engine/ping", { payload: "ainda-vivo" });
+    assert.equal((pong as { echo: string }).echo, "ainda-vivo");
     engine.close();
   });
 });

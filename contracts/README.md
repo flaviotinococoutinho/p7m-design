@@ -36,6 +36,7 @@ graph TD
 | `engine/ping` | ambas | request | [`schemas/engine.ping.schema.json`](schemas/engine.ping.schema.json) |
 | `engine/reset_session` | middleware → engine | request | [`schemas/engine.reset_session.schema.json`](schemas/engine.reset_session.schema.json) |
 | `engine/log` | engine → middleware | notification | [`schemas/engine.log.schema.json`](schemas/engine.log.schema.json) |
+| `frame/telemetry` | engine (host gráfico) → middleware | notification | [`schemas/frame.telemetry.schema.json`](schemas/frame.telemetry.schema.json) |
 | `skeleton/initialize` | middleware → engine | request | [`schemas/skeleton.initialize.schema.json`](schemas/skeleton.initialize.schema.json) |
 | `mesh/bind_shared_memory` | middleware → engine | request | [`schemas/mesh.bind_shared_memory.schema.json`](schemas/mesh.bind_shared_memory.schema.json) |
 | `engine/describe` | middleware → engine | request | [`schemas/engine.describe.schema.json`](schemas/engine.describe.schema.json) |
@@ -44,12 +45,17 @@ graph TD
 | `lighting/add`, `lighting/remove`, `lighting/inspect`, `lighting/evaluate` | middleware → engine | request | [`schemas/lighting.methods.schema.json`](schemas/lighting.methods.schema.json) |
 | `tilemap/define`, `tilemap/remove`, `tilemap/inspect` | middleware → engine | request | [`schemas/level.methods.schema.json`](schemas/level.methods.schema.json) |
 | `entity/spawn`, `entity/move`, `entity/despawn`, `entity/inspect` | middleware → engine | request | [`schemas/actors.methods.schema.json`](schemas/actors.methods.schema.json) |
+| `tileset/apply`, `tileset/clear` | middleware → engine | request | [`schemas/tileset.methods.schema.json`](schemas/tileset.methods.schema.json) |
 
 O canal é simétrico full-duplex, mas cada método tem uma direção canônica. O
-middleware comanda a cena (skeleton/mesh/camera/lighting/tilemap/entity) e descobre
-capacidades (`engine/describe`); a engine inicia a sessão (`engine/handshake`) e
-notifica logs (`engine/log`); `engine/ping` flui nos dois sentidos (também como
-heartbeat).
+middleware comanda a cena (skeleton/mesh/camera/lighting/tilemap/entity/tileset) e
+descobre capacidades (`engine/describe`); a engine inicia a sessão
+(`engine/handshake`), notifica logs (`engine/log`) e — quando é o host gráfico —
+telemetria do que desenhou (`frame/telemetry`); `engine/ping` flui nos dois
+sentidos (também como heartbeat).
+
+As duas notificações da engine são o **fio de volta**: tudo o mais neste
+contrato é o middleware mandando e a engine respondendo.
 
 ```mermaid
 graph LR
@@ -57,9 +63,10 @@ graph LR
   E(["Engine (MonoGame/.NET)"])
   M ==>|"skeleton/initialize<br/>mesh/bind_shared_memory · mesh/inspect"| E
   M ==>|"engine/describe (descoberta por reflexao)"| E
-  M ==>|"camera/* · lighting/* · tilemap/* · entity/*"| E
+  M ==>|"camera/* · lighting/* · tilemap/* · entity/* · tileset/*"| E
   E ==>|"engine/handshake (request, inicia sessao)"| M
   E ==>|"engine/log (notification)"| M
+  E ==>|"frame/telemetry (notification, so o host grafico)"| M
   M <==>|"engine/ping (ambas · heartbeat)"| E
 ```
 

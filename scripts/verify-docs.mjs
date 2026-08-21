@@ -53,7 +53,10 @@ const REQUIRED = [
   "docs/adr/README.md",
   "docs/adr/ADR-019-freeze-medido-dos-transports.md",
   "docs/adr/ADR-020-sessao-de-projeto-transacional.md",
+  "docs/adr/ADR-022-host-grafico-como-composicao.md",
+  "docs/adr/ADR-023-telemetria-de-frame-no-diario-de-eventos.md",
   "contracts/README.md",
+  "contracts/schemas/frame.telemetry.schema.json",
   "contracts/shared-memory-layout.md",
   "contracts/schemas/error-codes.md",
   "contracts/schemas/engine.reset_session.schema.json",
@@ -235,6 +238,31 @@ function lintJsonSchemas() {
   }
 }
 
+/**
+ * Todo schema de contrato aparece na tabela de métodos de `contracts/README.md`.
+ *
+ * A regra nasceu de um esquecimento real: `tileset.methods.schema.json` entrou
+ * com a fatia do atlas e a linha da tabela não — o contrato existia e a página
+ * que o anuncia dizia que não. Sem esta verificação, "o schema está no
+ * diretório" e "o contrato está publicado" são coisas diferentes que ninguém
+ * confere.
+ */
+function lintSchemaIndex() {
+  const dir = path.join(root, "contracts", "schemas");
+  const readmePath = path.join(root, "contracts", "README.md");
+  if (!fs.existsSync(dir) || !fs.existsSync(readmePath)) return;
+
+  const readme = fs.readFileSync(readmePath, "utf8");
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".json")) continue;
+    if (!readme.includes(`schemas/${name}`)) {
+      errors.push(
+        `contracts/README.md: schema publicado sem linha na tabela de métodos -> schemas/${name}`,
+      );
+    }
+  }
+}
+
 function resolveJsonPointer(doc, pointer) {
   if (pointer === "" || pointer === "/") return doc;
   let node = doc;
@@ -333,6 +361,7 @@ function lintCommandKindParity() {
 }
 
 lintJsonSchemas();
+lintSchemaIndex();
 lintCommandKindParity();
 
 // O baseline versionado é uma evidência executável, não uma tabela copiada à

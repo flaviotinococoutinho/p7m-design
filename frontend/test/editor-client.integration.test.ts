@@ -38,6 +38,10 @@ import {
 } from "../src/main/EditorClient.js";
 import { createLogger } from "../src/core/logging.js";
 import { ExperienceGate } from "../src/core/experienceGate.js";
+import {
+  FRAME_TELEMETRY_EVENT_KIND,
+  type RuntimeTelemetry,
+} from "../src/core/runtimeTelemetry.js";
 
 const silentMw = createMiddlewareLogger("test", { level: "silent" });
 const silentFe = createLogger("test", { level: "silent" });
@@ -426,6 +430,99 @@ test("resiliência: autenticação gRPC inválida não faz fallback para GraphQL
     assert.equal(client.technicalDiagnostics.activeTransport, "gRPC");
     assert.equal(client.technicalDiagnostics.resynchronizationCount, 0);
     assert.equal(client.latestProjectionSnapshot, undefined);
+  } finally {
+    client.close();
+    await rig.close();
+  }
+});
+
+test("telemetria do host é evento de CONTROLE: não vira comando aplicado nem lacuna no cursor", async () => {
+  // A armadilha que este teste fixa: a telemetria viaja pelo MESMO diário dos
+  // comandos. Entregue como evento de Blueprint, ela faria o `main` chamar
+  // `commandApplied()` a cada janela de desenho — o projeto ficaria sujo e o
+  // autosave gravaria arquivo sozinho enquanto o usuário só olha a janela do
+  // host. E ignorá-la sem consumir o seq seria pior ainda: viraria lacuna, e
+  // toda amostra custaria um resync completo.
+  const rig = await makeRig("tlm");
+  const client = new EditorClient(rig.pipeName, {
+    requestTimeoutMs: 2000,
+    // Sondagem longa DE PROPÓSITO: no trecho do fallback, é ela que separa
+    // "entregue no mesmo lote" de "entregue na sondagem seguinte" sem depender
+    // de margem de tempo — a próxima só viria depois do timeout do teste.
+    eventPollMs: 30_000,
+    probeTickMs: 30_000,
+    authToken: rig.authToken,
+    router: { recoveryBackoffMs: [30_000], promoteAfterProbes: 2 },
+    log: silentFe,
+  });
+  try {
+    await client.connect();
+    const blueprintEvents: string[] = [];
+    const telemetria: RuntimeTelemetry[] = [];
+    client.onBlueprintEvent((event) => blueprintEvents.push(event.kind));
+    client.onRuntimeTelemetry((sample) => telemetria.push(sample));
+
+    rig.journal.append(FRAME_TELEMETRY_EVENT_KIND, {
+      frames: 60,
+      windowMs: 1000,
+      drawMsAvg: 1.5,
+      drawMsMax: 4,
+      camera: { x: 64, y: 32, zoom: 1 },
+      frame: { quads: 96, quadsRequired: 96, truncated: false },
+      scene: { actors: 2, lights: 1, tilemaps: 1 },
+      engineSessionId: "host-1",
+      reason: "first_sample",
+    });
+
+    await waitUntil(() => telemetria.length === 1, 5000, "telemetria não chegou ao canal próprio");
+    assert.deepEqual(blueprintEvents, [], "telemetria não pode chegar como mutação do documento");
+    assert.equal(telemetria[0]?.camera.x, 64);
+    assert.equal(client.runtimeTelemetry?.engineSessionId, "host-1");
+
+    // O comando SEGUINTE chega normalmente: o seq da telemetria foi consumido,
+    // então não houve lacuna nem resync.
+    await rig.sessions.dispatch({ kind: "camera/configure", settings: { response: 7 } });
+    await waitUntil(
+      () => blueprintEvents.includes("cameraConfigured"),
+      5000,
+      "o comando após a telemetria não foi entregue — o cursor abriu lacuna",
+    );
+    assert.deepEqual(blueprintEvents, ["cameraConfigured"]);
+
+    // Agora o LOTE do fallback, onde a armadilha é outra: a telemetria não
+    // pode INTERROMPER o lote. Tratá-la como condição de parada — o que a
+    // troca de sessão legitimamente é — deixaria os eventos seguintes do
+    // mesmo lote para a próxima sondagem.
+    //
+    // O arranjo torna isso determinístico em vez de uma corrida de relógio: o
+    // gRPC cai, os dois eventos se acumulam SEM ninguém para entregá-los, e só
+    // então uma chamada força o fallback — que sonda UMA vez, imediatamente.
+    // Como `eventPollMs` é longo, a segunda sondagem está a 30 s de distância:
+    // se o comando não vier junto da telemetria, ele não vem a tempo.
+    rig.grpc.forceShutdown();
+    rig.journal.append(FRAME_TELEMETRY_EVENT_KIND, {
+      frames: 0,
+      windowMs: 1000,
+      drawMsAvg: 0,
+      drawMsMax: 0,
+      camera: { x: 64, y: 32, zoom: 1 },
+      frame: { quads: 96, quadsRequired: 96, truncated: false },
+      scene: { actors: 2, lights: 1, tilemaps: 1 },
+      engineSessionId: "host-1",
+      reason: "drawing_changed",
+    });
+    await rig.sessions.dispatch({ kind: "camera/configure", settings: { response: 8 } });
+
+    await client.query("camera");
+    assert.equal(client.technicalDiagnostics.activeTransport, "GraphQL fallback");
+    await waitUntil(
+      () => blueprintEvents.length === 2,
+      5000,
+      "o comando no MESMO lote da telemetria não foi entregue na sondagem dela",
+    );
+    assert.deepEqual(blueprintEvents, ["cameraConfigured", "cameraConfigured"]);
+    assert.equal(telemetria.length, 2);
+    assert.equal(telemetria[1]?.reason, "drawing_changed");
   } finally {
     client.close();
     await rig.close();

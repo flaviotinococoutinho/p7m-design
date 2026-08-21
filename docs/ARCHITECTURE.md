@@ -151,6 +151,7 @@ sequenceDiagram
     M->>E: engine/ping, skeleton/initialize, camera/*, entity/*
     E-->>M: resposta (timeout 10s)
     E->>M: engine/log notification
+    E->>M: frame/telemetry notification (so o host grafico)
     E->>M: engine/ping payload heartbeat
   end
   Note over E,M: EOF rejeita pendencias. Engine reconecta backoff 2s 4s 8s
@@ -169,8 +170,10 @@ sequenceDiagram
    vazia.
 5. A partir daí o canal é simétrico:
    - middleware → engine: `engine/ping`, `skeleton/initialize`, `mesh/bind_shared_memory`, …
-   - engine → middleware: `engine/log` (notification), heartbeat periódico via
-     `engine/ping` com payload `"heartbeat"`, respostas aos requests recebidos.
+   - engine → middleware: `engine/log` (notification), `frame/telemetry`
+     (notification, só o host gráfico — o Runtime headless não tem frames;
+     ADR-023), heartbeat periódico via `engine/ping` com payload `"heartbeat"`,
+     respostas aos requests recebidos.
 6. Desconexões são detectadas por EOF/erro de socket; requests pendentes são rejeitados
    imediatamente com erro de transporte. A engine reconecta com backoff exponencial.
 

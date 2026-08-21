@@ -110,8 +110,16 @@ test("R4: perfis de runtime são dados declarativos (só importam o contrato Run
   assert.deepEqual(offenders, []);
 });
 
-test("R5: núcleos algorítmicos (AutoTiler, AsepriteImporter, fnv1a) não importam NADA de outras camadas", () => {
-  for (const pure of ["leveldesign/AutoTiler.ts", "assets/AsepriteImporter.ts", "util/fnv1a.ts"]) {
+test("R5: núcleos algorítmicos (AutoTiler, AsepriteImporter, fnv1a, FrameTelemetry) não importam NADA de outras camadas", () => {
+  // FrameTelemetry entra aqui porque a borda (ipc/) o importa para validar a
+  // notificação que chega da engine: uma política que arrastasse o diário ou
+  // o adapter junto contaminaria a borda com a camada de runtime inteira.
+  for (const pure of [
+    "leveldesign/AutoTiler.ts",
+    "assets/AsepriteImporter.ts",
+    "util/fnv1a.ts",
+    "runtime/FrameTelemetry.ts",
+  ]) {
     const module_ = modules.find((m) => m.file === pure)!;
     assert.deepEqual(
       [...module_.imports],

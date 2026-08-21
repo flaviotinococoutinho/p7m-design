@@ -9,6 +9,7 @@ import {
   removeOwnedUnixSocketPath,
   restrictUnixSocketPathPermissions,
 } from "./UnixSocketLifecycle.js";
+import { parseFrameTelemetry } from "../runtime/FrameTelemetry.js";
 
 export interface HandshakeParams {
   clientName: string;
@@ -69,6 +70,8 @@ const SERVER_NAME = "gridsmith-middleware";
  * - "currentSessionChanged" (change: CurrentEngineSessionChangedEvent)
  *                    — somente quando muda a engine que recebe projeções
  * - "engineLog"    (session: EngineSession, entry: EngineLogEntry)
+ * - "frameTelemetry" (session: EngineSession, sample: FrameTelemetrySample)
+ *                    — só o host gráfico emite; o Runtime headless não tem frames
  */
 export class EnginePipeServer extends EventEmitter {
   private readonly server: net.Server;
@@ -192,6 +195,15 @@ export class EnginePipeServer extends EventEmitter {
       if (typeof entry?.message === "string" && typeof entry?.level === "string") {
         this.emit("engineLog", session, entry);
       }
+    });
+
+    peer.registerMethod("frame/telemetry", (params) => {
+      if (!session) return; // idem: sem sessão não há a quem atribuir a janela
+      const sample = parseFrameTelemetry(params);
+      // Amostra malformada é descartada em silêncio: é notificação, não há a
+      // quem devolver erro, e derrubar a conexão por causa de telemetria
+      // fecharia o plano de controle inteiro por causa do acessório.
+      if (sample) this.emit("frameTelemetry", session, sample);
     });
 
     peer.on("close", (reason: Error) => {

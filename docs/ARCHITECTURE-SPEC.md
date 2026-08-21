@@ -898,6 +898,10 @@ risco conhecido e aceito.
 - **Captura de stdout/stderr por serviço** — `main.ts` (ring das últimas 50 linhas; 5
   no status) com diagnóstico acionável (P0.1).
 - **`engine/log`** notification (níveis/categoria) e ping de heartbeat.
+- **`frame/telemetry`** notification do host gráfico (ADR-023): o que o frame
+  desenhou, a câmera viva pós-amortecimento e as contagens da cena. Coalescida
+  antes do `EventJournal` — o anel não paga por um sinal contínuo — e tratada
+  como evento de CONTROLE no editor, então não suja o documento.
 - **Verbosidade controlada** — `GRIDSMITH_VERBOSITY` (`silent|error|warn|info|debug|trace`,
   default `info`) governa os loggers estruturados puros (`middleware/src/util/log.ts`,
   `frontend/src/core/logging.ts`): escopo hierárquico, sink injetável (testado),

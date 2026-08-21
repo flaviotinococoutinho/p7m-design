@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gridsmith://contracts/frame.telemetry",
+  "title": "frame/telemetry",
+  "description": "Notification (sem id) emitida pelo HOST GRÁFICO a cada janela de ~1 s com o que ele desenhou. Nunca é request: telemetria não tem resposta e não pode fazer o desenho esperar. Só quem tem frames emite — o Runtime headless não participa (ADR-023). `frames` = 0 é informação legítima: a janela existiu e nada foi desenhado.",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "object",
+      "properties": {
+        "frames": { "type": "integer", "minimum": 0 },
+        "windowMs": { "type": "number", "minimum": 0 },
+        "drawMsAvg": { "type": "number", "minimum": 0 },
+        "drawMsMax": { "type": "number", "minimum": 0 },
+        "camera": {
+          "description": "Posição COM QUE o último frame foi desenhado — já com amortecimento e shake aplicados pelo plano de controle. Pode divergir da última posição comandada, e é essa divergência que a torna útil.",
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "zoom": { "type": "number", "exclusiveMinimum": 0 }
+          },
+          "required": ["x", "y", "zoom"],
+          "additionalProperties": false
+        },
+        "frame": {
+          "description": "O que o último frame DESENHOU. `quadsRequired` maior que `quads` significa frame truncado pelo teto do buffer.",
+          "type": "object",
+          "properties": {
+            "quads": { "type": "integer", "minimum": 0 },
+            "quadsRequired": { "type": "integer", "minimum": 0 },
+            "truncated": { "type": "boolean" }
+          },
+          "required": ["quads", "quadsRequired", "truncated"],
+          "additionalProperties": false
+        },
+        "scene": {
+          "description": "O que a cena CONTÉM. Separado de `frame` porque são números diferentes: a onda A não desenha luz nenhuma, e somá-los faria a telemetria afirmar uma imagem que a janela não mostra.",
+          "type": "object",
+          "properties": {
+            "actors": { "type": "integer", "minimum": 0 },
+            "lights": { "type": "integer", "minimum": 0 },
+            "tilemaps": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["actors", "lights", "tilemaps"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["frames", "windowMs", "camera", "frame", "scene"],
+      "additionalProperties": false
+    }
+  }
+}

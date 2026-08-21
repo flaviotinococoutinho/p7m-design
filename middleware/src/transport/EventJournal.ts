@@ -106,7 +106,8 @@ export class EventJournal extends EventEmitter {
   private partition: JournalPartition;
 
   constructor(
-    private readonly capacity = 512,
+    /** Tamanho do anel — é a janela de catch-up antes de exigir resync. */
+    readonly capacity = 512,
     readonly middlewareInstanceId: string = randomUUID(),
   ) {
     super();

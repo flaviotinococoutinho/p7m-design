@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Gridsmith.Engine.Core.Level;
 using Gridsmith.Engine.Core.Rendering;
 using Gridsmith.Engine.Runtime;
@@ -34,6 +35,7 @@ public sealed class GridsmithGame : Game
     private readonly GraphicsDeviceManager _graphics;
     private readonly EngineService _service;
     private readonly string _contentRoot;
+    private readonly FrameTelemetryProbe? _telemetry;
     private readonly FrameQuad[] _quads = new FrameQuad[MaxQuadsPerFrame];
 
     /// <summary>
@@ -46,10 +48,19 @@ public sealed class GridsmithGame : Game
     private Texture2D? _pixel;
     private int _lastTruncatedRequired;
 
-    public GridsmithGame(EngineService service, string? contentRoot = null)
+    /// <param name="telemetry">
+    /// Acumulador da telemetria de frame; <c>null</c> desliga a medição. É
+    /// opcional porque desenhar não pode depender de haver observador — o host
+    /// abre a janela igual, com ou sem middleware do outro lado.
+    /// </param>
+    public GridsmithGame(
+        EngineService service,
+        string? contentRoot = null,
+        FrameTelemetryProbe? telemetry = null)
     {
         _service = service;
         _contentRoot = contentRoot ?? Environment.CurrentDirectory;
+        _telemetry = telemetry;
         _graphics = new GraphicsDeviceManager(this)
         {
             PreferredBackBufferWidth = 1280,
@@ -73,6 +84,12 @@ public sealed class GridsmithGame : Game
 
     protected override void Draw(GameTime gameTime)
     {
+        // Relógio de parede em vez de gameTime.ElapsedGameTime: com
+        // IsFixedTimeStep (default do MonoGame) o tempo do GameTime é o passo
+        // NOMINAL, sempre 16,67 ms — reportá-lo como desempenho seria publicar
+        // uma constante disfarçada de medição.
+        var startedAt = Stopwatch.GetTimestamp();
+
         GraphicsDevice.Clear(new Color(16, 18, 22));
         if (_batch is null || _pixel is null)
         {
@@ -150,6 +167,18 @@ public sealed class GridsmithGame : Game
 
         _batch.End();
         base.Draw(gameTime);
+
+        // Depois do End(): o que se mede é o frame inteiro, incluindo o
+        // flush do batch. Medir só o laço de Draw contaria o barato e
+        // esconderia o caro.
+        _telemetry?.Record(
+            Stopwatch.GetTimestamp() - startedAt,
+            viewport.CenterX,
+            viewport.CenterY,
+            viewport.Zoom,
+            composition.Written,
+            composition.Required,
+            composition.Truncated);
     }
 
     private FrameViewport CurrentViewport()

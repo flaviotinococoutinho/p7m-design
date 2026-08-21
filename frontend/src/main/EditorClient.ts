@@ -27,6 +27,10 @@ import {
   type HotJournalStatus,
 } from "./transport/GrpcTransport.js";
 import type { ResolvedExperienceLike } from "../core/experienceGate.js";
+import {
+  FRAME_TELEMETRY_EVENT_KIND,
+  type RuntimeTelemetry,
+} from "../core/runtimeTelemetry.js";
 
 export interface BlueprintEventPayload {
   readonly kind: string;
@@ -229,6 +233,8 @@ export class EditorClient {
   private readonly grpc: GrpcTransport;
   private readonly graphql: GraphQlTransport;
   private readonly eventListeners = new Set<BlueprintEventListener>();
+  private readonly telemetryListeners = new Set<(sample: RuntimeTelemetry) => void>();
+  private lastTelemetry: RuntimeTelemetry | undefined;
   private readonly resyncListeners = new Set<(snapshot: ProjectionSnapshot, record: ResynchronizationRecord) => void>();
   private readonly eventPollMs: number;
   private readonly probeTickMs: number;
@@ -360,6 +366,21 @@ export class EditorClient {
   onBlueprintEvent(listener: BlueprintEventListener): () => void {
     this.eventListeners.add(listener);
     return () => this.eventListeners.delete(listener);
+  }
+
+  /**
+   * Telemetria do host gráfico. Canal separado dos eventos de Blueprint de
+   * propósito: nada aqui muda o documento, e um consumidor que suje o projeto
+   * com isto está usando o canal errado.
+   */
+  onRuntimeTelemetry(listener: (sample: RuntimeTelemetry) => void): () => void {
+    this.telemetryListeners.add(listener);
+    return () => this.telemetryListeners.delete(listener);
+  }
+
+  /** Última janela reportada pelo host; `undefined` até a primeira chegar. */
+  get runtimeTelemetry(): RuntimeTelemetry | undefined {
+    return this.lastTelemetry;
   }
 
   onResynchronized(
@@ -870,6 +891,15 @@ export class EditorClient {
     }
   }
 
+  /**
+   * Processa um evento do fio.
+   *
+   * @returns `true` quando o lote pode continuar; `false` SÓ quando parar é a
+   * decisão certa — houve pedido de ressincronização e os eventos seguintes
+   * deixaram de fazer sentido. Não é "entreguei ao consumidor": eventos de
+   * controle (troca de sessão, telemetria do host) não chegam aos ouvintes de
+   * Blueprint e mesmo assim têm respostas opostas aqui.
+   */
   private deliver(event: HotEvent): boolean {
     const cursor = this.cursor;
     const sequence = parseSequence(event.seq);
@@ -902,6 +932,28 @@ export class EditorClient {
     if (event.kind === "project/sessionChanged") {
       this.requestResync("project_session_changed");
       return false;
+    }
+    // Telemetria do host gráfico (ADR-023) também é evento de CONTROLE: ela
+    // descreve o que a engine desenhou, não o que o documento passou a ser.
+    // Entregá-la aos ouvintes de Blueprint faria o app contar cada janela de
+    // desenho como comando aplicado — sujando o projeto e disparando autosave
+    // enquanto o usuário apenas olha a janela do host. O cursor já avançou
+    // acima, então nada disso vira lacuna nem resync.
+    if (event.kind === FRAME_TELEMETRY_EVENT_KIND) {
+      const sample = event.payload as RuntimeTelemetry;
+      this.lastTelemetry = sample;
+      for (const listener of this.telemetryListeners) {
+        try {
+          listener(sample);
+        } catch (error) {
+          this.log.warn("runtime telemetry listener failed", { message: String(error) });
+        }
+      }
+      // `true` = SIGA com o lote. Diferente de `project/sessionChanged`, que
+      // pede resync e por isso interrompe, a telemetria foi processada com
+      // sucesso: devolver `false` aqui abortaria os eventos seguintes do
+      // mesmo lote de polling, que só chegariam na próxima sondagem.
+      return true;
     }
     const rawPayload =
       typeof event.payload === "object" && event.payload !== null

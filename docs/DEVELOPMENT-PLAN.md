@@ -158,12 +158,18 @@ lá nenhum inspector podia existir. O teclado passou a ter **um ouvinte só**
 (regra F6), e um segundo pretendente ao mesmo acorde falha no `register`, não
 em produção. Layout redimensionável e persistido, com clamp e fail-safe.
 
-**Host gráfico (F1, onda A — primeira fatia):** existe um processo que
-desenha. `Gridsmith.Engine.Host` instancia a janela MonoGame e desenha, por
-referência, os mesmos stores DOD que o plano de controle muta — o `Runtime`
-continua sem ver MonoGame (E4 intacta, E6 nova). O que compõe o frame saiu do
-host e virou `FrameComposer`, puro e Zero-GC: é o que torna "o que é desenhado"
-verificável sem GPU e sem shader compilado.
+**Host gráfico (F1, onda A — COMPLETA):** existe um processo que desenha.
+`Gridsmith.Engine.Host` instancia a janela MonoGame e desenha, por referência,
+os mesmos stores DOD que o plano de controle muta — o `Runtime` continua sem
+ver MonoGame (E4 intacta, E6 nova). O que compõe o frame saiu do host e virou
+`FrameComposer`, puro e Zero-GC: é o que torna "o que é desenhado" verificável
+sem GPU e sem shader compilado. O atlas é canônico e atravessa o fio; canvas e
+host amostram a MESMA tabela em grade e **degradam juntos** (mesmo hash de cor,
+travado por testes espelhados número a número). A paridade visual é **gate no
+CI**: as duas descrições de frame são comparadas byte a byte, sem tolerância.
+E o fio de volta existe (ADR-023): o host reporta o que desenhou — câmera viva
+pós-amortecimento, quads desenhados × pedidos, truncamento — coalescido antes
+do diário para não gastar a janela de resync com um sinal descartável.
 
 **Infra de qualidade:** regras arquiteturais executáveis nas três camadas +
 regras semânticas; anti-drift de docs (`npm run docs:verify`); e2e das fases
@@ -183,9 +189,9 @@ Auditadas contra o código; cada linha tem evidência verificável. **Gravidade*
 
 | # | Pendência | Evidência | Onde no plano |
 |---|---|---|---|
-| B1 (parte) | **F1**: o host desenha (ADR-022) e o CONTRATO do atlas existe — `tileset/define`/`tileset/remove` canônicos com DoD completo, documento v5, projeção honesta (`skipped` com razão até o runtime consumir). Falta o CONSUMO: o canvas e o host ainda desenham cor determinística, e é a fatia (ii) que troca isso por amostragem do atlas nos DOIS lados | `TilesetSpec` em grade (região por fórmula — nada por tile para divergir); consulta `tilesets` nas quatro bordas | F1 (receita §9.6, fatias ii–iv) |
+| ~~B1~~ | ✅ **Entregue (F1 onda A completa).** O host desenha em janela própria (ADR-022), o atlas é canônico e atravessa o fio (`tileset/define`→`tileset/apply`), o canvas e o host amostram a MESMA tabela e degradam juntos, a paridade visual é gate no CI (descrição byte a byte) e o runtime reporta o que desenhou (ADR-023). **Resta**: embutir a janela no painel — é a onda B, não B1 | — | — |
 | B2 | **Tileset/atlas não existe em nenhuma camada** — "pinte significado, derive arte" termina em `tileId` inteiro | busca por `tileset`/`atlas` em `middleware/src`, `frontend/src` e `contracts/` não retorna nada | F1 (receita §9.6) |
-| B3 | **P0.5 — preview embutido** (run/pause/stop, live edit, overlays) | não existe classe `Game`/`GraphicsDeviceManager` na engine; o "Runtime MonoGame" é headless | F1, onda B |
+| B3 | **P0.5 — preview EMBUTIDO** (janela do host composta no painel do editor; run/pause/stop, live edit, overlays). A onda A destravou tudo o que vem antes: existe janela desenhando, e a telemetria que um overlay consumiria já chega ao processo principal do editor | a janela do host é própria, supervisionada pelo Electron; `preview.embedded` segue desabilitada no perfil por decisão da ADR-022 | F1, onda B |
 | B4 | **P0.7 — undo/redo global** no nível do comando canônico | `CommandHistory` declara no cabeçalho que é só o relógio lógico; undo segue local ao IntGrid | E8 + E9 (receita §9.4) |
 | B5 | **Placement de câmera e luz com handles no canvas** | a vista do editor de níveis não menciona câmera nem luz; `camera/configure`, `light/add` e `light/remove` existem completos no canônico, sem UI | cauda pós-E10 — os registros que faltavam (painel, ferramenta, seleção, inspector) já existem; falta a vista |
 | B6 | **Archetype só carrega posição** — transform/sprite/animação/colisão não cruzam o fio | os parâmetros de spawn na engine são `(EntityId, ArchetypeId, Position)`; o `ActorStore` guarda só archetypes e posições | F7 + F1 (sem tileset nada vira sprite) |
@@ -223,7 +229,7 @@ Auditadas contra o código; cada linha tem evidência verificável. **Gravidade*
 | D18 | Cauda: asset browser com inspector, `spriteRenderer` com bump v6 (o v5 foi tomado pelos tilesets da F1), campos do wizard sobre o núcleo puro da `main` | o "Novo" hoje só escolhe template por diálogo de botões | cauda pós-E10 |
 | D19 | DoD ainda não exige "todo domínio editável expõe create/update/delete" | o modelo segue assimétrico e o DoD não menciona simetria | F7 + E8 |
 | D20 | P0.8 parcial: falta navegação ao objeto, fix automático e consolidação de compatibilidade/pipeline no painel | o painel existe e é honesto; as três funções não | F4 + F5 residual |
-| D21 | F1: canal engine→editor só transporta handshake/ping/log — nenhum overlay de runtime é possível | são os únicos métodos registrados no servidor de pipe | F1 (telemetria) |
+| ~~D21~~ | ✅ **Entregue (F1 onda A, fatia iv).** `frame/telemetry` fecha o fio de volta: câmera viva (pós-amortecimento e shake, a que o frame usou), quads desenhados × pedidos, truncamento, contagens de cena e se o host ainda desenha. Coalescida antes do diário (ADR-023) e tratada como evento de CONTROLE no editor. **Resta**: o consumo visual (painel/overlay) — pertence à onda B, e o valor hoje para no processo principal, de propósito | — | — |
 
 ### 7.3. Dívida técnica
 
@@ -790,8 +796,28 @@ o CAS de `historyCursor`. Trocar o alvo passou a ser uma linha.
 > tile -1, ator fora do recorte, ator em meia-célula. Roda no job e2e do CI e
 > o `docs:verify` exige a invocação.
 >
-> **Fatia restante da onda A**: (iv) telemetria de frame como notificação no
-> `EventJournal` — nunca no caminho síncrono do dispatch.
+> ✅ **Fatia (iv) entregue — o fio de volta (ADR-023).** `frame/telemetry` é
+> notificação engine → middleware emitida pelo **host gráfico** a ~1 Hz; o
+> Runtime headless não emite, e isso é estrutural (probe e publisher moram no
+> assembly do Host, que o Runtime não pode referenciar — regra E6 amarra a
+> localização). O laço de desenho não faz IPC: acumula sem alocar, com tempo
+> medido por `Stopwatch` (o `GameTime` com `IsFixedTimeStep` devolveria a
+> constante 16,67 ms). **A decisão difícil foi a taxa do diário:** o
+> `EventJournal` é um anel de 512 com a promessa de não perder evento na
+> janela, e telemetria é sinal contínuo — uma amostra por segundo gastaria a
+> janela inteira em nove minutos, expulsando os comandos. A política pura
+> resolve com duas propriedades: **silêncio custa zero** (host parado publica
+> nada; um batimento periódico esvaziaria o anel em 40 min repetindo "nada
+> mudou") e **teto de taxa de 10 s para todas as razões**, valor DERIVADO da
+> capacidade do anel e amarrado a ela por teste. No editor, telemetria é evento
+> de **controle**: o cursor avança (ignorá-la sem consumir o `seq` viraria
+> lacuna e resync a cada amostra) mas ela não chega aos ouvintes de Blueprint —
+> entregá-la como mutação faria cada janela de desenho sujar o projeto e
+> disparar autosave.
+>
+> ✅ **ONDA A COMPLETA.** Existe um processo que desenha, o atlas atravessa o
+> fio nos dois lados, a paridade visual é gate no CI e o runtime reporta o que
+> desenhou. Falta a onda B (preview embutido).
 
 **Objetivo (onda A).** Que exista um processo que desenhe, em janela própria,
 os mesmos stores que os handlers JSON-RPC mutam — e que o que o usuário pinta

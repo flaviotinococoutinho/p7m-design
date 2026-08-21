@@ -116,6 +116,7 @@ graph TD
       M->>E: engine/ping, skeleton/initialize, camera/*, entity/*
       E-->>M: resposta (timeout 10s)
       E->>M: engine/log notification
+      E->>M: frame/telemetry notification (so o host grafico)
       E->>M: engine/ping payload heartbeat
     end
     Note over E,M: EOF rejeita pendencias - engine reconecta backoff 2s 4s 8s

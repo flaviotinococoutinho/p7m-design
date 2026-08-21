@@ -14,3 +14,10 @@ functions) estão registradas retroativamente em
 | [ADR-018](ADR-018-endpoints-e-verbosidade-dos-transports.md) | Endpoints locais dos transports e controle de verbosidade | Accepted |
 | [ADR-019](ADR-019-freeze-medido-dos-transports.md) | Freeze medido: gRPC default em dispatch/eventos, GraphQL baseline completo, legado só compatibilidade | Accepted |
 | [ADR-020](ADR-020-sessao-de-projeto-transacional.md) | Sessão de projeto explícita, replay isolado e substituição atômica | Accepted |
+| [ADR-022](ADR-022-host-grafico-como-composicao.md) | Host gráfico como composição; paridade visual verificada na DESCRIÇÃO do frame, sem GPU | Accepted |
+| [ADR-023](ADR-023-telemetria-de-frame-no-diario-de-eventos.md) | Telemetria de frame como notificação, coalescida antes do diário e tratada como evento de controle no editor | Accepted |
+
+> **ADR-021 está reservada, não perdida:** é o regime de curadoria descrito em
+> [`../DEVELOPMENT-PLAN.md`](../DEVELOPMENT-PLAN.md) §10, ainda por escrever. O
+> número foi tomado quando a decisão foi identificada, para que a numeração não
+> mudasse depois.

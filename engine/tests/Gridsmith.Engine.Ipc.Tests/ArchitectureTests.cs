@@ -72,6 +72,15 @@ public class ArchitectureTests
             new[] { "Gridsmith.Engine.Core", "Gridsmith.Engine.Ipc", "Gridsmith.Engine.Runtime" },
             GridsmithReferencesOf(host));
 
+        // A telemetria de frame nasce no MESMO ponto (ADR-023): quem publica
+        // números sobre frames é quem TEM frames. Mover o publisher para o Ipc
+        // ou para o Runtime "para reaproveitar" abriria a porta para o serviço
+        // headless anunciar desempenho de um desenho que ele nunca fez — e o
+        // Runtime não pode nem referenciar o Host (a referência é a inversa),
+        // então esta asserção é o que impede o caminho de volta.
+        Assert.Equal("Gridsmith.Engine.Host", typeof(FrameTelemetryPublisher).Assembly.GetName().Name);
+        Assert.Equal("Gridsmith.Engine.Host", typeof(FrameTelemetryProbe).Assembly.GetName().Name);
+
         // Graphics também vê MonoGame — é a camada de desenho —, mas não vê o
         // plano de controle (E3). Fora esses dois, ninguém em produção vê.
         Assert.True(ReferencesMonoGame(typeof(DeferredRenderer).Assembly));
